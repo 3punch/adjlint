@@ -1,0 +1,4 @@
+symbol,kind,effective_date,cash_per_share,bonus_ratio,subscription_price,subscription_ratio,previous_close
+WEBM,dividend,2026-06-01,30,,,,
+WEBM,bonus,2026-06-08,,0.5,,,
+WEBM,dividend,2026-06-18,20,,,,

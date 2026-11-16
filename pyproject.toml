@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "adjlint"
+version = "0.1.0"
+description = "Lint your OHLCV price data: reconstruct corporate actions, catch impossible returns, audit adjustment factors."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+keywords = ["linter", "ohlcv", "corporate-actions", "backtesting", "quant", "data-quality", "adjusted-prices"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Financial Services",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Office / Home :: Financial",
+  "Typing :: Typed",
+]
+
+# adjlint has no runtime dependencies on purpose. A data-quality gate that
+# itself pulls in a dependency tree is a gate nobody keeps in CI.
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+adjlint = "adjlint.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/3punch/adjlint"
+Repository = "https://github.com/3punch/adjlint"
+Issues = "https://github.com/3punch/adjlint/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+adjlint = ["py.typed"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
