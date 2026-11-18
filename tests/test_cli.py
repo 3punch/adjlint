@@ -66,6 +66,27 @@ def test_a_missing_file_is_a_usage_error(capsys):
     assert "adjlint:" in capsys.readouterr().err
 
 
+def test_semicolon_exports_produce_the_same_report_as_the_comma_original(capsys, tmp_path):
+    paths = {}
+    for name in ("prices", "actions"):
+        text = (ROOT / "examples" / f"{name}.csv").read_text(encoding="utf-8")
+        target = tmp_path / f"{name}.csv"
+        target.write_text(text.replace(",", ";"), encoding="utf-8")
+        paths[name] = str(target)
+    code = main(
+        [
+            "audit",
+            "--prices", paths["prices"],
+            "--actions", paths["actions"],
+            "--profile", "tse",
+            "--format", "json",
+        ]
+    )
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert {f["code"] for f in payload["findings"]} == {"AL001", "AL002", "AL003"}
+
+
 def test_filtering_to_an_absent_symbol_leaves_nothing_to_audit(capsys):
     assert main(["audit", "--prices", PRICES, "--symbol", "NOPE"]) == 2
     assert "is not in" in capsys.readouterr().err

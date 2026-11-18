@@ -199,6 +199,18 @@ adjlint audit -p prices.csv --calendar sessions-2026.csv
 | `--stale-streak` | `5` | Identical closes that count as a frozen feed |
 | `--enable` / `--disable` | all | Select rules by code |
 | `--fail-on` | `error` | `error`, `warning`, `info` or `never` |
+| `--delimiter` | sniffed | Field separator for **every** input at once (`,`, `;` or tab); force one for exports detection cannot settle |
+
+Exchange and broker exports often arrive semicolon- or tab-separated. The
+delimiter is sniffed from the first lines of each file, then checked against the
+columns that reader needs: a separator that leaves the date or close column
+missing loses to one that does not. Detection falls back to `,`.
+
+`--delimiter ';'` skips detection entirely. It applies to every input in the run,
+so it only helps when all of them share that separator -- convert a mixed set to
+one delimiter first. When detection cannot settle on any candidate, the
+`ambiguous delimiter` error prints the header it parsed; other failures report
+the missing column instead, because a missing column is not a delimiter problem.
 
 ## CI
 

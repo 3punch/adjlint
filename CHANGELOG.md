@@ -5,6 +5,17 @@ project's interpretation of semantic versioning: breaking changes to rule codes,
 finding shapes, or the factor formula bump the major version, because a rule that
 starts or stops firing silently is a breaking change for a CI gate.
 
+## Unreleased
+
+### Added
+
+- CSV inputs are dialect-sniffed (comma, semicolon or tab) and the guess is
+  checked against the columns each reader needs, so a separator that happens to
+  appear inside a column name no longer wins. A `--delimiter` override covers
+  pathological exports; when no candidate settles, the `ambiguous delimiter`
+  error now shows the header it parsed instead of a generic missing-column
+  complaint.
+
 ## 0.1.0
 
 First release: the rule engine, the CLI, and ten rules.

@@ -62,6 +62,10 @@ def _parser() -> argparse.ArgumentParser:
         help="market profile: {}".format(", ".join(sorted(_profile_names()))),
     )
     run.add_argument("--timezone", help="IANA zone for timestamp columns (default: the profile zone)")
+    run.add_argument(
+        "--delimiter",
+        help="CSV delimiter for all inputs (default: sniffed, falling back to ',')",
+    )
     run.add_argument("--tolerance", type=_decimal, default=Decimal("0.005"))
     run.add_argument("--outlier-z", type=_decimal, default=Decimal("8"), dest="outlier_z")
     run.add_argument("--outlier-min", type=int, default=20, dest="outlier_min_samples")
@@ -103,9 +107,9 @@ def _cmd_profiles() -> int:
 
 def _series(args, profile: MarketProfile):
     timezone = args.timezone or profile.timezone
-    prices = load_prices(args.prices, timezone=timezone)
-    actions = load_actions(args.actions) if args.actions else []
-    adjusted = load_adjusted(args.adjusted) if args.adjusted else {}
+    prices = load_prices(args.prices, timezone=timezone, delimiter=args.delimiter)
+    actions = load_actions(args.actions, delimiter=args.delimiter) if args.actions else []
+    adjusted = load_adjusted(args.adjusted, delimiter=args.delimiter) if args.adjusted else {}
 
     if args.symbol:
         wanted = {s.strip() for s in args.symbol.split(",") if s.strip()}
@@ -152,7 +156,9 @@ def main(argv: list[str] | None = None) -> int:
     try:
         profile = get_profile(args.profile)
         calendar = (
-            TradingCalendar.from_dates(load_calendar(args.calendar), name=args.calendar)
+            TradingCalendar.from_dates(
+                load_calendar(args.calendar, delimiter=args.delimiter), name=args.calendar
+            )
             if args.calendar
             else TradingCalendar.from_profile(profile)
         )
