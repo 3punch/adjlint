@@ -56,7 +56,11 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--adjusted", help="vendor adjusted-close CSV, enables AL007")
     run.add_argument("--calendar", help="CSV of trading sessions; defaults to the profile rule")
     run.add_argument("--symbol", help="comma-separated symbols to audit (default: all)")
-    run.add_argument("--profile", default="generic", help="market profile: %s" % ", ".join(sorted(_profile_names())))
+    run.add_argument(
+        "--profile",
+        default="generic",
+        help="market profile: {}".format(", ".join(sorted(_profile_names()))),
+    )
     run.add_argument("--timezone", help="IANA zone for timestamp columns (default: the profile zone)")
     run.add_argument("--tolerance", type=_decimal, default=Decimal("0.005"))
     run.add_argument("--outlier-z", type=_decimal, default=Decimal("8"), dest="outlier_z")

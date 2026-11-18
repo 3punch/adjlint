@@ -5,10 +5,10 @@ from decimal import Decimal
 from io import StringIO
 
 import pytest
-from conftest import WEEK
 
 from adjlint import ActionKind, DataError, load_actions, load_adjusted, load_calendar, load_prices
 from adjlint.io import normalise_number, parse_date, parse_decimal
+from conftest import WEEK
 
 PRICES = """symbol,date,open,high,low,close,volume
 FOO,2026-03-02,100,110,99,105,1000

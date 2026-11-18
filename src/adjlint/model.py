@@ -53,7 +53,7 @@ class Severity(str, Enum):
             return NotImplemented
         return self.rank >= other.rank
 
-    def at_least(self, threshold: "Severity | None") -> bool:
+    def at_least(self, threshold: Severity | None) -> bool:
         """True when this severity is at or above ``threshold`` (None = always)."""
         return True if threshold is None else self >= threshold
 
@@ -119,11 +119,10 @@ class CorporateAction:
     def __post_init__(self) -> None:
         if not isinstance(self.kind, ActionKind):
             object.__setattr__(self, "kind", ActionKind(self.kind))
-        if self.split_ratio is None and self.bonus_ratio is None and self.cash_per_share is None:
-            if self.subscription_price is None or self.subscription_ratio is None:
-                raise ValueError(
-                    f"{self.symbol} {self.effective_date}: action carries no economic terms"
-                )
+        bare = self.split_ratio is None and self.bonus_ratio is None and self.cash_per_share is None
+        rights_incomplete = self.subscription_price is None or self.subscription_ratio is None
+        if bare and rights_incomplete:
+            raise ValueError(f"{self.symbol} {self.effective_date}: action carries no economic terms")
 
     @property
     def share_multiplier(self) -> Decimal:

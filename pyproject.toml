@@ -14,8 +14,12 @@ classifiers = [
   "Development Status :: 4 - Beta",
   "Intended Audience :: Financial Services",
   "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
-  "Topic :: Office / Home :: Financial",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
   "Typing :: Typed",
 ]
 
@@ -40,11 +44,27 @@ where = ["src"]
 [tool.setuptools.package-data]
 adjlint = ["py.typed"]
 
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+src = ["src", "tests", "tools"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "PIE", "FURB"]
+ignore = [
+  # Decimal("1000") over Decimal(1000): a price linter takes numeric input as
+  # *text* from CSVs, and spelling every literal as a string is what keeps
+  # "never build a money value from a binary float" visible in the code.
+  "FURB157",
+  # io.py opens a file it hands back to the caller (it must outlive the read),
+  # so the context-manager form does not apply at that one site.
+  "SIM115",
+  # The io layer documents, in comments, the very Persian and Arabic-Indic digits
+  # it normalises.  Those glyphs are the subject matter, not a typo.
+  "RUF003",
+]
+
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
-
-[tool.ruff]
-line-length = 100
-target-version = "py310"

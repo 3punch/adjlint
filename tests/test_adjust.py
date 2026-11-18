@@ -3,10 +3,16 @@
 from decimal import Decimal
 
 import pytest
+
+from adjlint import (
+    ActionKind,
+    CorporateAction,
+    adjusted_series,
+    adjustment_factor,
+    reference_price,
+    resolve_actions,
+)
 from conftest import WEEK, bar
-
-from adjlint import ActionKind, CorporateAction, adjusted_series, adjustment_factor, reference_price, resolve_actions
-
 
 CLOSE = Decimal("1000")
 

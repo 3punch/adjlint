@@ -4,7 +4,6 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
-from conftest import WEEK, at, bar, by_code, codes
 
 from adjlint import (
     ActionKind,
@@ -16,6 +15,7 @@ from adjlint import (
     SymbolSeries,
     audit,
 )
+from conftest import WEEK, at, bar, by_code, codes
 
 FLAT_5 = MarketProfile(name="test", weekend_days=(5, 6), default_band=Decimal("0.05"))
 
@@ -131,7 +131,7 @@ def test_a_robust_outlier_survives_a_long_quiet_series():
     days = sessions(26)
     closes = [Decimal(1000 + i) for i in range(26)]
     closes[-1] = Decimal("1523")
-    rows = [bar(0, c, day=d) for d, c in zip(days, closes)]
+    rows = [bar(0, c, day=d) for d, c in zip(days, closes, strict=False)]
     findings = run(rows)
     assert "AL005" in codes(findings)
     assert at(findings, days[-1])[1 - 1].details  # AL001 and AL005 both land on that day

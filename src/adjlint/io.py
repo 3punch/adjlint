@@ -8,18 +8,19 @@ day, so they are normalised here, once, in one place.
 """
 
 from __future__ import annotations
+
 import csv
 import re
 from collections import defaultdict
+from collections.abc import Iterable
 from datetime import date as _date
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import IO, Iterable
+from typing import IO
 from zoneinfo import ZoneInfo
 
 from .model import ActionKind, Bar, CorporateAction
-
 
 __all__ = [
     "DataError",
@@ -55,8 +56,7 @@ def normalise_number(text: str) -> str:
     out = text.translate(DIGIT_ALIASES).strip(WS).replace("_", "")
     if _GROUPED.match(out):
         out = out.replace(",", "")
-    if out.startswith("+"):
-        out = out[1:]
+    out = out.removeprefix("+")
     return out
 
 
@@ -119,7 +119,7 @@ def _header_key(name: str) -> str:
 def _rows(source) -> tuple[list[dict[str, str]], str]:
     if isinstance(source, (str, Path)):
         try:
-            handle: IO[str] = open(source, "r", encoding="utf-8-sig", newline="")
+            handle: IO[str] = open(source, encoding="utf-8-sig", newline="")
         except OSError as exc:
             raise DataError(f"cannot read {source}: {exc.strerror or exc}") from None
         owned, label = True, str(source)
@@ -185,6 +185,16 @@ def load_prices(source, timezone: str | None = None) -> dict[str, list[Bar]]:
 
 KIND_COLUMNS = ("kind", "type", "event", "action", "event_type")
 EFFECTIVE_COLUMNS = ("effective_date", "ex_date", "date", "base_date", "open_date", "effective")
+#: The economic terms of an event, and the column names each one travels under
+#: in the wild.  One table, so the accepted schema has exactly one definition.
+_ACTION_FIELDS = {
+    "split_ratio": ("split_ratio", "ratio", "split"),
+    "bonus_ratio": ("bonus_ratio", "bonus"),
+    "cash_per_share": ("cash_per_share", "dps", "dividend"),
+    "subscription_price": ("subscription_price", "price"),
+    "subscription_ratio": ("subscription_ratio", "coverage", "rights_ratio"),
+    "previous_close": ("previous_close", "base_price", "last_close"),
+}
 KIND_ALIASES = {
     "split": "split",
     "stock_split": "split",
@@ -222,12 +232,10 @@ def load_actions(source) -> list[CorporateAction]:
                 symbol=(_pick(row, SYMBOL_COLUMNS) or "*").strip(WS),
                 kind=ActionKind(kind),
                 effective_date=parse_date(raw_day),
-                split_ratio=parse_decimal(_pick(row, ("split_ratio", "ratio", "split")), field="split_ratio", row=index),
-                bonus_ratio=parse_decimal(_pick(row, ("bonus_ratio", "bonus")), field="bonus_ratio", row=index),
-                cash_per_share=parse_decimal(_pick(row, ("cash_per_share", "dps", "dividend")), field="cash_per_share", row=index),
-                subscription_price=parse_decimal(_pick(row, ("subscription_price", "price")), field="subscription_price", row=index),
-                subscription_ratio=parse_decimal(_pick(row, ("subscription_ratio", "coverage", "rights_ratio")), field="subscription_ratio", row=index),
-                previous_close=parse_decimal(_pick(row, ("previous_close", "base_price", "last_close")), field="previous_close", row=index),
+                **{
+                    field: parse_decimal(_pick(row, columns), field=field, row=index)
+                    for field, columns in _ACTION_FIELDS.items()
+                },
                 note=_pick(row, ("note", "notes", "comment")),
             )
         except ValueError as exc:
@@ -242,7 +250,8 @@ def load_adjusted(source) -> dict[str, list[tuple[_date, Decimal]]]:
     out: dict[str, list[tuple[_date, Decimal]]] = defaultdict(list)
     for index, row in enumerate(rows, start=2):
         raw_date = _pick(row, DATE_COLUMNS)
-        value = parse_decimal(_pick(row, ("adjusted_close", "adj_close", "adjusted", "close")), field="adjusted_close", row=index)
+        columns = ("adjusted_close", "adj_close", "adjusted", "close")
+        value = parse_decimal(_pick(row, columns), field="adjusted_close", row=index)
         if raw_date is None or value is None:
             raise DataError(f"{label}:{index}: adjusted series needs a date and a price")
         out[(_pick(row, SYMBOL_COLUMNS) or "*").strip(WS)].append((parse_date(raw_date), value))

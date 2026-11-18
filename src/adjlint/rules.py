@@ -7,17 +7,18 @@ with no I/O, no network and no plugin host.
 
 from __future__ import annotations
 
+import itertools
 from bisect import bisect_left
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Callable, Iterable, Iterator, Sequence
 
 from .adjust import ResolvedAction, adjusted_series, resolve_actions
 from .market import GENERIC, MarketProfile, TradingCalendar
 from .model import Bar, CorporateAction, Finding, Severity
 
-__all__ = ["AuditConfig", "AuditContext", "RULES", "Rule", "SymbolSeries", "audit"]
+__all__ = ["RULES", "AuditConfig", "AuditContext", "Rule", "SymbolSeries", "audit"]
 
 ZERO = Decimal(0)
 ONE = Decimal(1)
@@ -71,7 +72,7 @@ class SymbolSeries:
     vendor_adjusted: tuple[tuple[date, Decimal], ...] | None = None
 
     @staticmethod
-    def of(symbol, bars, actions=(), vendor_adjusted=None) -> "SymbolSeries":
+    def of(symbol, bars, actions=(), vendor_adjusted=None) -> SymbolSeries:
         return SymbolSeries(
             symbol=symbol,
             bars=tuple(bars),
@@ -143,8 +144,7 @@ def _ordered(ctx: AuditContext) -> list[Bar]:
 
 def _pairs(ctx: AuditContext) -> Iterator[tuple[Bar, Bar]]:
     ordered = _ordered(ctx)
-    for previous, bar in zip(ordered, ordered[1:]):
-        yield previous, bar
+    yield from itertools.pairwise(ordered)
 
 
 def _base_price(factors: Iterable[Decimal]) -> Decimal:
@@ -218,7 +218,12 @@ def _r_action_not_applied(ctx: AuditContext) -> Iterator[Finding]:
             )
 
 
-@rule("AL003", "unclassified-gap", "Event on record but no reference price -- labelled, never imputed.", Severity.WARNING)
+@rule(
+    "AL003",
+    "unclassified-gap",
+    "Event on record but no reference price -- labelled, never imputed.",
+    Severity.WARNING,
+)
 def _r_unclassified_gap(ctx: AuditContext) -> Iterator[Finding]:
     for item in ctx.resolved:
         if item.usable:
@@ -277,7 +282,7 @@ def _r_outlier_return(ctx: AuditContext) -> Iterator[Finding]:
     mad = _median([abs(r - med) for r in returns])
     if mad <= 0:
         return
-    for (previous, bar), value in zip(pairs, returns):
+    for (_previous, bar), value in zip(pairs, returns, strict=False):
         score = (Decimal("0.6745") * (value - med) / mad).quantize(_DP)
         if abs(score) > ctx.config.outlier_z:
             yield ctx.finding(
@@ -377,7 +382,12 @@ def _r_ohlc(ctx: AuditContext) -> Iterator[Finding]:
             yield ctx.finding("AL008", Severity.ERROR, "negative volume", on=bar.date, volume=bar.volume)
 
 
-@rule("AL009", "frozen-price-streak", "Identical closes across many sessions -- feed stopped updating.", Severity.WARNING)
+@rule(
+    "AL009",
+    "frozen-price-streak",
+    "Identical closes across many sessions -- feed stopped updating.",
+    Severity.WARNING,
+)
 def _r_frozen(ctx: AuditContext) -> Iterator[Finding]:
     ordered = _ordered(ctx)
     if not ordered:

@@ -14,12 +14,12 @@ from decimal import Decimal
 
 __all__ = [
     "GENERIC",
+    "PROFILES",
     "TSE",
     "MarketProfile",
     "ProfileError",
     "TradingCalendar",
     "get_profile",
-    "PROFILES",
 ]
 
 #: ``(inclusive upper bound of the previous close, band limit)``.
@@ -141,11 +141,11 @@ class TradingCalendar:
         self.explicit = explicit
 
     @classmethod
-    def from_profile(cls, profile: MarketProfile) -> "TradingCalendar":
+    def from_profile(cls, profile: MarketProfile) -> TradingCalendar:
         return cls(weekend_days=profile.weekend_days, name=profile.name)
 
     @classmethod
-    def from_dates(cls, sessions, name: str = "explicit") -> "TradingCalendar":
+    def from_dates(cls, sessions, name: str = "explicit") -> TradingCalendar:
         days = frozenset(sessions)
         if not days:
             raise ProfileError("cannot build a calendar from zero sessions")

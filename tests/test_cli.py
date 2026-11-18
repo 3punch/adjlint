@@ -22,7 +22,7 @@ def test_the_example_data_produces_the_three_showcase_findings(capsys):
 
 
 def test_json_output_is_machine_readable(capsys):
-    main(BASE + ["--format", "json"])
+    main([*BASE, "--format", "json"])
     payload = json.loads(capsys.readouterr().out)
     assert payload["summary"] == {"error": 2, "warning": 1, "info": 0}
     assert {f["code"] for f in payload["findings"]} == {"AL001", "AL002", "AL003"}
@@ -30,29 +30,29 @@ def test_json_output_is_machine_readable(capsys):
 
 
 def test_markdown_output_renders_a_table(capsys):
-    main(BASE + ["--format", "md"])
+    main([*BASE, "--format", "md"])
     out = capsys.readouterr().out
     assert out.startswith("# adjlint report")
     assert "| Severity | Symbol | Date | Code | Rule | Message |" in out
 
 
 def test_disabling_rules_can_make_the_gate_green(capsys):
-    assert main(BASE + ["--disable", "AL001,AL002,AL003"]) == 0
+    assert main([*BASE, "--disable", "AL001,AL002,AL003"]) == 0
     assert "clean" in capsys.readouterr().out
 
 
 def test_fail_on_never_always_exits_zero(capsys):
-    assert main(BASE + ["--fail-on", "never"]) == 0
+    assert main([*BASE, "--fail-on", "never"]) == 0
     capsys.readouterr()
 
 
 def test_fail_on_warning_promotes_the_warning(capsys):
-    assert main(BASE + ["--disable", "AL001,AL002", "--fail-on", "warning"]) == 1
+    assert main([*BASE, "--disable", "AL001,AL002", "--fail-on", "warning"]) == 1
 
 
 def test_report_can_be_written_to_a_file(tmp_path):
     target = tmp_path / "report.md"
-    main(BASE + ["--format", "md", "--output", str(target)])
+    main([*BASE, "--format", "md", "--output", str(target)])
     assert target.read_text(encoding="utf-8").startswith("# adjlint report")
 
 

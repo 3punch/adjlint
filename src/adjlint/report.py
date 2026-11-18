@@ -5,13 +5,13 @@ a PR comment, JSON is what CI consumes.  All three are derived from the same
 finding list, so a gate and a human can never disagree about the counts.
 """
 
-from collections import Counter
 import json
+from collections import Counter
 
 from .model import Severity
 from .version import VERSION
 
-__all__ = ["counts", "render", "render_json", "render_markdown", "render_text", "FORMATS"]
+__all__ = ["FORMATS", "counts", "render", "render_json", "render_markdown", "render_text"]
 
 _ORDER = (Severity.ERROR, Severity.WARNING, Severity.INFO)
 FORMATS = ("text", "md", "markdown", "json")

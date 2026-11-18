@@ -33,7 +33,7 @@ def imported_third_party() -> list[str]:
     offenders = set()
     for name in fresh:
         root = name.split(".")[0]
-        if root.startswith("adjlint") or root in stdlib or root.startswith("_"):
+        if root.startswith(("adjlint", "_")) or root in stdlib:
             continue
         offenders.add(root)
     return sorted(offenders)
