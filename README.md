@@ -199,6 +199,12 @@ adjlint audit -p prices.csv --calendar sessions-2026.csv
 | `--stale-streak` | `5` | Identical closes that count as a frozen feed |
 | `--enable` / `--disable` | all | Select rules by code |
 | `--fail-on` | `error` | `error`, `warning`, `info` or `never` |
+| `--delimiter` | sniffed | Field separator for all inputs (`,`, `;` or tab); force one for pathological exports |
+
+Exchange and broker exports often arrive semicolon- or tab-separated. The
+delimiter is sniffed from the first lines of each file and falls back to `,`;
+`--delimiter ';'` skips detection when a file is ambiguous. When detection does
+fail, the error shows the header that was parsed so you can see what it saw.
 
 ## CI
 

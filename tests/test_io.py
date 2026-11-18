@@ -120,3 +120,40 @@ def test_load_adjusted_and_calendar():
     calendar = load_calendar(StringIO("date\n2026-03-02\n2026-03-03\n"))
     assert calendar == (WEEK[0], WEEK[1])
 
+
+def _closes(text, **kwargs):
+    return {k: [bar.close for bar in bars] for k, bars in load_prices(StringIO(text), **kwargs).items()}
+
+
+def test_tsv_and_semicolon_exports_load_like_the_comma_original():
+    expected = _closes(PRICES)
+    assert _closes(PRICES.replace(",", "\t")) == expected
+    assert _closes(PRICES.replace(",", ";")) == expected
+
+
+def test_a_forced_delimiter_wins_over_the_sniffer():
+    # A pipe-separated export is deliberately outside the sniffed set.
+    assert _closes(PRICES.replace(",", "|"), delimiter="|") == _closes(PRICES)
+    # The same file without the override must fail loudly, not half-load.
+    with pytest.raises(DataError):
+        _closes(PRICES.replace(",", "|"))
+
+
+def test_a_multi_character_delimiter_is_refused():
+    with pytest.raises(DataError, match="one character"):
+        _closes(PRICES, delimiter=";;")
+
+
+def test_an_ambiguous_sniff_reports_the_header_it_found():
+    # Sniffer refuses this sample (a semicolon header over bare rows), so we
+    # fall back to a comma -- and the error must show the header we parsed.
+    ambiguous = "symbol;date;close\nFOO\nBAR\n"
+    with pytest.raises(DataError, match="ambiguous delimiter") as exc:
+        _closes(ambiguous)
+    assert "symbol;date;close" in str(exc.value)
+
+
+def test_a_bare_single_column_file_still_loads_after_sniff_fails():
+    # The fallback must not turn every one-column calendar into an error.
+    assert load_calendar(StringIO("date\n2026-03-02\n2026-03-03\n")) == (WEEK[0], WEEK[1])
+

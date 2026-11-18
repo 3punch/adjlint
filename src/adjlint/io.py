@@ -10,6 +10,7 @@ day, so they are normalised here, once, in one place.
 from __future__ import annotations
 
 import csv
+import itertools
 import re
 from collections import defaultdict
 from collections.abc import Iterable
@@ -141,7 +142,55 @@ def _header_key(name: str) -> str:
     return name.strip(WS).lower().replace(" ", "_").replace("-", "_")
 
 
-def _rows(source) -> tuple[list[dict[str, str]], str]:
+#: Delimiters worth considering for an exchange export.  Restricting the set
+#: keeps the sniffer from picking a character that occurs inside a note field.
+_SNIFF_CANDIDATES = ",;\t"
+_SAMPLE_SIZE = 8192
+
+
+def _sample_lines(handle: IO[str]) -> tuple[list[str], str]:
+    """Read whole lines up to a cap, so a sniff never cuts a header in half."""
+    lines: list[str] = []
+    total = 0
+    while total < _SAMPLE_SIZE:
+        line = handle.readline()
+        if not line:
+            break
+        lines.append(line)
+        total += len(line)
+    return lines, "".join(lines)
+
+
+def _dialect_for(handle: IO[str], delimiter: str | None) -> tuple[str, Iterable[str], bool]:
+    """Return the delimiter, a replayable line source, and whether we guessed.
+
+    The third value lets the caller produce a useful error when the guess was a
+    fallback rather than a decision: an ambiguous file should show the header
+    that was actually parsed, not a generic "no date column" complaint.
+    """
+    if delimiter is not None:
+        if len(delimiter) != 1 or delimiter in "\r\n":
+            raise DataError(f"delimiter must be one character, got {delimiter!r}")
+        return delimiter, handle, False
+
+    lines, sample = _sample_lines(handle)
+    try:
+        sniffed = csv.Sniffer().sniff(sample, delimiters=_SNIFF_CANDIDATES).delimiter
+        guessed = False
+    except csv.Error:
+        # Sniffer refuses short and single-column samples.  A comma CSV is the
+        # common case, so fall back to it instead of refusing a readable file.
+        sniffed, guessed = ",", True
+    try:
+        handle.seek(0)
+        source: Iterable[str] = handle
+    except (AttributeError, OSError, ValueError):
+        # Pipes cannot rewind; replay what we sampled and keep the rest.
+        source = itertools.chain(lines, handle)
+    return sniffed, source, guessed
+
+
+def _rows(source, delimiter: str | None = None) -> tuple[list[dict[str, str]], str]:
     if isinstance(source, (str, Path)):
         try:
             handle: IO[str] = open(source, encoding="utf-8-sig", newline="")
@@ -151,10 +200,17 @@ def _rows(source) -> tuple[list[dict[str, str]], str]:
     else:
         handle, owned, label = source, False, getattr(source, "name", "<stream>")
     try:
-        reader = csv.DictReader(handle)
+        chosen, lines, guessed = _dialect_for(handle, delimiter)
+        reader = csv.DictReader(lines, delimiter=chosen)
         if not reader.fieldnames:
             raise DataError(f"{label}: no header row")
-        reader.fieldnames = [_header_key(f or "") for f in reader.fieldnames]
+        names = [f or "" for f in reader.fieldnames]
+        if guessed and any(any(c in name for c in _SNIFF_CANDIDATES if c != ",") for name in names):
+            raise DataError(
+                f"{label}: ambiguous delimiter; parsed header {names!r}; "
+                "pass --delimiter to select one"
+            )
+        reader.fieldnames = [_header_key(name) for name in names]
         return list(reader), label
     finally:
         if owned:
@@ -178,13 +234,16 @@ VOLUME_COLUMNS = ("volume", "vol", "volume_l", "total_volume", "qty")
 SYMBOL_COLUMNS = ("symbol", "ticker", "instrument", "code", "tinicode", "symbol_code")
 
 
-def load_prices(source, timezone: str | None = None) -> dict[str, list[Bar]]:
+def load_prices(
+    source, timezone: str | None = None, delimiter: str | None = None
+) -> dict[str, list[Bar]]:
     """Read a bar CSV into ``{symbol: [Bar, ...]}``, preserving file order.
 
     Duplicate sessions are kept, not collapsed -- dropping them would hide the
-    very defect (AL006) that tells you the export is wrong.
+    very defect (AL006) that tells you the export is wrong.  ``delimiter`` skips
+    dialect detection for exports the sniffer cannot classify.
     """
-    rows, label = _rows(source)
+    rows, label = _rows(source, delimiter)
     out: dict[str, list[Bar]] = defaultdict(list)
     for index, row in enumerate(rows, start=2):
         raw_date = _pick(row, DATE_COLUMNS)
@@ -237,9 +296,9 @@ KIND_ALIASES = {
 }
 
 
-def load_actions(source) -> list[CorporateAction]:
+def load_actions(source, delimiter: str | None = None) -> list[CorporateAction]:
     """Read a corporate-action CSV.  Unknown kinds raise instead of being skipped."""
-    rows, label = _rows(source)
+    rows, label = _rows(source, delimiter)
     actions: list[CorporateAction] = []
     for index, row in enumerate(rows, start=2):
         raw_kind = (_pick(row, KIND_COLUMNS) or "").strip(WS).lower()
@@ -269,9 +328,9 @@ def load_actions(source) -> list[CorporateAction]:
     return actions
 
 
-def load_adjusted(source) -> dict[str, list[tuple[_date, Decimal]]]:
+def load_adjusted(source, delimiter: str | None = None) -> dict[str, list[tuple[_date, Decimal]]]:
     """Vendor adjusted closes, for the AL007 cross-check."""
-    rows, label = _rows(source)
+    rows, label = _rows(source, delimiter)
     out: dict[str, list[tuple[_date, Decimal]]] = defaultdict(list)
     for index, row in enumerate(rows, start=2):
         raw_date = _pick(row, DATE_COLUMNS)
@@ -283,9 +342,9 @@ def load_adjusted(source) -> dict[str, list[tuple[_date, Decimal]]]:
     return dict(out)
 
 
-def load_calendar(source) -> tuple[_date, ...]:
+def load_calendar(source, delimiter: str | None = None) -> tuple[_date, ...]:
     """One session per line, in a ``date`` column or a bare first column."""
-    rows, label = _rows(source)
+    rows, label = _rows(source, delimiter)
     sessions: list[_date] = []
     for index, row in enumerate(rows, start=2):
         raw = _pick(row, DATE_COLUMNS) or (next(iter(row.values()), None) if row else None)
