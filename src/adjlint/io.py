@@ -146,6 +146,116 @@ def _header_key(name: str) -> str:
 #: keeps the sniffer from picking a character that occurs inside a note field.
 _SNIFF_CANDIDATES = ",;\t"
 _SAMPLE_SIZE = 8192
+#: A list or iterator of lines has no notion of a byte cap, so bound the sample
+#: by lines instead.  Two is enough to probe; the rest feeds the sniffer.
+_SAMPLE_LINES = 64
+
+
+def _never_seekable() -> bool:
+    return False
+
+
+def _header_of(lines: list[str], delimiter: str) -> list[str]:
+    """The raw header a separator produces, before key normalisation."""
+    for row in csv.reader(lines[:1], delimiter=delimiter):
+        return [field or "" for field in row]
+    return []
+
+
+def _usable(lines: list[str], delimiter: str, required: tuple[tuple[str, ...], ...]) -> bool:
+    """Would this separator actually give the caller its columns?
+
+    ``required`` holds alias groups, mirroring what ``_pick`` accepts: a group is
+    satisfied when any one of its names is present.  The first data row is
+    checked as well as the header, because a header can look right while the
+    rows say otherwise: ``symbol;date;close`` over bare ``FOO`` rows splits into
+    three named columns and still has no date anywhere.
+    """
+    probe = list(csv.reader(lines[:2], delimiter=delimiter))
+    if not probe or not probe[0]:
+        return False
+    header = [_header_key(field or "") for field in probe[0]]
+    positions = [{i for i, name in enumerate(header) if name in set(group)} for group in required]
+    if any(not found for found in positions):
+        return False
+    if len(probe) < 2:
+        return True  # header only -- let the reader report the empty input
+    return all(
+        any(index < len(probe[1]) and probe[1][index].strip(WS) for index in found)
+        for found in positions
+    )
+
+
+def _dialect_for(
+    source: Iterable[str],
+    delimiter: str | None,
+    required: tuple[tuple[str, ...], ...],
+    label: str,
+) -> tuple[str, Iterable[str]]:
+    """Return the delimiter and a line source that replays what was sampled.
+
+    The guess is checked against the columns the caller needs instead of being
+    trusted outright.  ``csv.Sniffer`` counts separators rather than reading
+    them, so a ``;`` export with a comma inside one column name sniffs as a
+    comma file, and the loader then blames a missing date column on a perfectly
+    readable export.  The sniffer still goes first in the queue; it just has to
+    earn it.  An explicit ``delimiter`` is honoured verbatim, as asked for.
+    """
+    if delimiter is not None:
+        if len(delimiter) != 1 or delimiter in "\r\n":
+            raise DataError(f"delimiter must be one character, got {delimiter!r}")
+        return delimiter, source
+
+    # Sampling starts wherever the caller left the stream and rewinds to exactly
+    # that position: seek(0) would hand a preamble line back as the header.
+    linewise = hasattr(source, "readline")
+    rewindable = linewise and getattr(source, "seekable", _never_seekable)()
+    start = source.tell() if rewindable else None
+    if linewise:
+        lines, sample = _sample_lines(source)
+    else:
+        # load_* has always taken a list or iterator of lines, not only a file
+        # object, so draw the sample from the one iterator and chain it back.
+        pending = iter(source)
+        lines = list(itertools.islice(pending, _SAMPLE_LINES))
+        sample = "".join(lines)
+    if start is not None:
+        source.seek(start)
+
+    try:
+        ranked = [csv.Sniffer().sniff(sample, delimiters=_SNIFF_CANDIDATES).delimiter]
+    except csv.Error:
+        # Sniffer refuses short and single-column samples.  A comma CSV is the
+        # common case, so start there rather than refusing a readable file.
+        ranked = [","]
+    ranked += [candidate for candidate in _SNIFF_CANDIDATES if candidate not in ranked]
+
+    for candidate in ranked:
+        if _usable(lines, candidate, required):
+            chosen = candidate
+            break
+    else:
+        # Nothing fits, and that is not necessarily a delimiter problem.  A
+        # ``date,open`` export has an unambiguous separator and a real missing
+        # close column, and only the loader can say so; hijacking that with a
+        # delimiter complaint would misdiagnose it.  Keep the original fallback
+        # and reserve the parsed-header diagnostic for the one shape where a
+        # separator demonstrably was the mistake.
+        chosen = ranked[0]
+        names = _header_of(lines, chosen)
+        if any(any(c in name for c in _SNIFF_CANDIDATES if c != ",") for name in names):
+            raise DataError(
+                f"{label}: ambiguous delimiter; parsed header {names!r}; "
+                "pass --delimiter to select one"
+            )
+
+    if start is not None:
+        replay: Iterable[str] = source
+    elif linewise:
+        replay = itertools.chain(lines, source)  # a pipe cannot rewind
+    else:
+        replay = itertools.chain(lines, pending)
+    return chosen, replay
 
 
 def _sample_lines(handle: IO[str]) -> tuple[list[str], str]:
@@ -161,36 +271,9 @@ def _sample_lines(handle: IO[str]) -> tuple[list[str], str]:
     return lines, "".join(lines)
 
 
-def _dialect_for(handle: IO[str], delimiter: str | None) -> tuple[str, Iterable[str], bool]:
-    """Return the delimiter, a replayable line source, and whether we guessed.
-
-    The third value lets the caller produce a useful error when the guess was a
-    fallback rather than a decision: an ambiguous file should show the header
-    that was actually parsed, not a generic "no date column" complaint.
-    """
-    if delimiter is not None:
-        if len(delimiter) != 1 or delimiter in "\r\n":
-            raise DataError(f"delimiter must be one character, got {delimiter!r}")
-        return delimiter, handle, False
-
-    lines, sample = _sample_lines(handle)
-    try:
-        sniffed = csv.Sniffer().sniff(sample, delimiters=_SNIFF_CANDIDATES).delimiter
-        guessed = False
-    except csv.Error:
-        # Sniffer refuses short and single-column samples.  A comma CSV is the
-        # common case, so fall back to it instead of refusing a readable file.
-        sniffed, guessed = ",", True
-    try:
-        handle.seek(0)
-        source: Iterable[str] = handle
-    except (AttributeError, OSError, ValueError):
-        # Pipes cannot rewind; replay what we sampled and keep the rest.
-        source = itertools.chain(lines, handle)
-    return sniffed, source, guessed
-
-
-def _rows(source, delimiter: str | None = None) -> tuple[list[dict[str, str]], str]:
+def _rows(
+    source, delimiter: str | None = None, required: tuple[tuple[str, ...], ...] = ()
+) -> tuple[list[dict[str, str]], str]:
     if isinstance(source, (str, Path)):
         try:
             handle: IO[str] = open(source, encoding="utf-8-sig", newline="")
@@ -200,17 +283,11 @@ def _rows(source, delimiter: str | None = None) -> tuple[list[dict[str, str]], s
     else:
         handle, owned, label = source, False, getattr(source, "name", "<stream>")
     try:
-        chosen, lines, guessed = _dialect_for(handle, delimiter)
+        chosen, lines = _dialect_for(handle, delimiter, required, label)
         reader = csv.DictReader(lines, delimiter=chosen)
         if not reader.fieldnames:
             raise DataError(f"{label}: no header row")
-        names = [f or "" for f in reader.fieldnames]
-        if guessed and any(any(c in name for c in _SNIFF_CANDIDATES if c != ",") for name in names):
-            raise DataError(
-                f"{label}: ambiguous delimiter; parsed header {names!r}; "
-                "pass --delimiter to select one"
-            )
-        reader.fieldnames = [_header_key(name) for name in names]
+        reader.fieldnames = [_header_key(f or "") for f in reader.fieldnames]
         return list(reader), label
     finally:
         if owned:
@@ -243,7 +320,7 @@ def load_prices(
     very defect (AL006) that tells you the export is wrong.  ``delimiter`` skips
     dialect detection for exports the sniffer cannot classify.
     """
-    rows, label = _rows(source, delimiter)
+    rows, label = _rows(source, delimiter, (DATE_COLUMNS, CLOSE_COLUMNS))
     out: dict[str, list[Bar]] = defaultdict(list)
     for index, row in enumerate(rows, start=2):
         raw_date = _pick(row, DATE_COLUMNS)
@@ -298,7 +375,7 @@ KIND_ALIASES = {
 
 def load_actions(source, delimiter: str | None = None) -> list[CorporateAction]:
     """Read a corporate-action CSV.  Unknown kinds raise instead of being skipped."""
-    rows, label = _rows(source, delimiter)
+    rows, label = _rows(source, delimiter, (KIND_COLUMNS, EFFECTIVE_COLUMNS))
     actions: list[CorporateAction] = []
     for index, row in enumerate(rows, start=2):
         raw_kind = (_pick(row, KIND_COLUMNS) or "").strip(WS).lower()
@@ -328,14 +405,16 @@ def load_actions(source, delimiter: str | None = None) -> list[CorporateAction]:
     return actions
 
 
+ADJUSTED_COLUMNS = ("adjusted_close", "adj_close", "adjusted", "close")
+
+
 def load_adjusted(source, delimiter: str | None = None) -> dict[str, list[tuple[_date, Decimal]]]:
     """Vendor adjusted closes, for the AL007 cross-check."""
-    rows, label = _rows(source, delimiter)
+    rows, label = _rows(source, delimiter, (DATE_COLUMNS, ADJUSTED_COLUMNS))
     out: dict[str, list[tuple[_date, Decimal]]] = defaultdict(list)
     for index, row in enumerate(rows, start=2):
         raw_date = _pick(row, DATE_COLUMNS)
-        columns = ("adjusted_close", "adj_close", "adjusted", "close")
-        value = parse_decimal(_pick(row, columns), field="adjusted_close", row=index)
+        value = parse_decimal(_pick(row, ADJUSTED_COLUMNS), field="adjusted_close", row=index)
         if raw_date is None or value is None:
             raise DataError(f"{label}:{index}: adjusted series needs a date and a price")
         out[(_pick(row, SYMBOL_COLUMNS) or "*").strip(WS)].append((parse_date(raw_date), value))
@@ -344,6 +423,8 @@ def load_adjusted(source, delimiter: str | None = None) -> dict[str, list[tuple[
 
 def load_calendar(source, delimiter: str | None = None) -> tuple[_date, ...]:
     """One session per line, in a ``date`` column or a bare first column."""
+    # No required groups on purpose: a session list is often a single unnamed
+    # column, which no separator can be inferred from and none needs to be.
     rows, label = _rows(source, delimiter)
     sessions: list[_date] = []
     for index, row in enumerate(rows, start=2):

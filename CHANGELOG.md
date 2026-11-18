@@ -9,9 +9,12 @@ starts or stops firing silently is a breaking change for a CI gate.
 
 ### Added
 
-- CSV inputs are dialect-sniffed (comma, semicolon or tab) with a `--delimiter`
-  override for pathological exports; when the sniff is ambiguous the error now
-  shows the header it parsed instead of a generic missing-column complaint.
+- CSV inputs are dialect-sniffed (comma, semicolon or tab) and the guess is
+  checked against the columns each reader needs, so a separator that happens to
+  appear inside a column name no longer wins. A `--delimiter` override covers
+  pathological exports; when no candidate settles, the `ambiguous delimiter`
+  error now shows the header it parsed instead of a generic missing-column
+  complaint.
 
 ## 0.1.0
 
