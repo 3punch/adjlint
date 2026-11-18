@@ -14,7 +14,8 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable
 from datetime import date as _date
-from datetime import datetime
+from datetime import datetime, timedelta
+from datetime import timezone as _timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import IO
@@ -76,6 +77,30 @@ def parse_decimal(text: str | None, *, field: str = "value", row: int | None = N
 _DATE_PATTERNS = ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%d-%m-%Y", "%d/%m/%Y")
 
 
+def resolve_zone(name: str):
+    """Resolve an IANA zone, ``UTC``, or a fixed offset such as ``+03:30``.
+
+    Windows ships no IANA database, so ``ZoneInfo`` there needs the separate
+    ``tzdata`` wheel.  A data-quality tool must not die inside its own date
+    handling, so the two forms that need no database are handled directly and a
+    missing database becomes an actionable error instead of a stack trace.
+    """
+    key = name.strip()
+    if key.upper() in ("UTC", "GMT", "Z"):
+        return _timezone.utc
+    if len(key) >= 5 and key[0] in "+-" and ":" in key:
+        sign = 1 if key[0] == "+" else -1
+        hours, minutes = (int(part) for part in key[1:].split(":")[:2])
+        return _timezone(sign * timedelta(hours=hours, minutes=minutes))
+    try:
+        return ZoneInfo(key)
+    except (KeyError, ValueError):
+        raise DataError(
+            f"timezone {name!r} is unavailable: install the 'tzdata' package "
+            "(Windows ships no IANA database) or pass a fixed offset like '+03:30'"
+        ) from None
+
+
 def parse_date(text, timezone: str | None = None) -> _date:
     """Floor a date or timestamp to its *session*, in the market's timezone.
 
@@ -108,7 +133,7 @@ def parse_date(text, timezone: str | None = None) -> _date:
                     f"unrecognised date {text!r}; expected YYYY-MM-DD or ISO-8601"
                 ) from None
     if timezone and moment.tzinfo is not None:
-        moment = moment.astimezone(ZoneInfo(timezone))
+        moment = moment.astimezone(resolve_zone(timezone))
     return moment.date()
 
 

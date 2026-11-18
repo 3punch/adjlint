@@ -1,0 +1,4 @@
+# Keep the free-form option: questions, dataset war stories and "this rule would
+# be wrong for my market" reports do not fit either form, and they are the most
+# useful issues this project gets.
+blank_issues_enabled: true

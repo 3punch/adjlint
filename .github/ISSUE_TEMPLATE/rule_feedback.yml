@@ -1,0 +1,47 @@
+name: Rule feedback
+description: A rule fired when it should not have, or stayed silent when it should not have
+labels: ["rule-feedback"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The number of rules is this project's cost, not its feature list: every
+        rule fires inside somebody's CI. So false positives are taken as seriously
+        as crashes, and a proposal for a new rule has to beat that bar.
+  - type: dropdown
+    attributes:
+      label: Which direction
+      options:
+        - A rule fired and should not have (false positive)
+        - A rule stayed silent and should not have (false negative)
+        - A new rule is needed
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Rule code
+      description: From `adjlint rules`. Leave empty for a new rule.
+      placeholder: "AL002"
+  - type: textarea
+    attributes:
+      label: The bars and actions involved
+      description: |
+        Paste the rows in CSV shape. Two or three sessions are usually enough —
+        the interesting part is almost always the pair around the boundary.
+      render: csv
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: What the market actually did
+      description: |
+        The economics, not the expectation. "the symbol was halted for three
+        sessions and reopened on a base price set by an auction" tells me more
+        than "the flag is wrong". Market-specific microstructure is exactly the
+        knowledge this tool is trying to encode.
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: How you would state the rule in one sentence
+      description: For new rules only, and the sentence is the hard part.

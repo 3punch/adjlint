@@ -7,7 +7,7 @@ from io import StringIO
 import pytest
 
 from adjlint import ActionKind, DataError, load_actions, load_adjusted, load_calendar, load_prices
-from adjlint.io import normalise_number, parse_date, parse_decimal
+from adjlint.io import normalise_number, parse_date, parse_decimal, resolve_zone
 from conftest import WEEK
 
 PRICES = """symbol,date,open,high,low,close,volume
@@ -44,7 +44,28 @@ def test_date_shapes_all_reach_the_same_session():
 def test_a_utc_timestamp_is_floored_in_the_market_timezone():
     late = "2026-03-02T23:30:00+00:00"
     assert parse_date(late) == date(2026, 3, 2)
-    assert parse_date(late, timezone="Asia/Tehran") == date(2026, 3, 3)
+    # +03:30 is the Tehran offset written as a fixed offset, so the suite does not
+    # depend on the IANA database -- Windows ships none.
+    assert parse_date(late, timezone="+03:30") == date(2026, 3, 3)
+    assert parse_date(late, timezone="UTC") == date(2026, 3, 2)
+
+
+def _iana_available(name):
+    try:
+        resolve_zone(name)
+    except DataError:
+        return False
+    return True
+
+
+@pytest.mark.skipif(not _iana_available("Asia/Tehran"), reason="tzdata not installed")
+def test_named_iana_zones_resolve_when_the_database_exists():
+    assert parse_date("2026-03-02T23:30:00+00:00", timezone="Asia/Tehran") == date(2026, 3, 3)
+
+
+def test_a_zone_that_cannot_be_loaded_reports_an_actionable_error():
+    with pytest.raises(DataError, match="tzdata"):
+        parse_date("2026-03-02T23:30:00+00:00", timezone="Mars/Olympus_Mons")
 
 
 def test_an_unparsable_date_is_an_error_not_a_silent_row_drop():

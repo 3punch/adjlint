@@ -1,0 +1,11 @@
+include README.md
+include LICENSE
+include CHANGELOG.md
+include CONTRIBUTING.md
+include SECURITY.md
+recursive-include examples *.csv
+recursive-include tools *.py
+recursive-include docs *.md
+# Without this line setuptools ships only test_*.py in the sdist and leaves
+# conftest.py behind, so the shipped tarball's own suite cannot be collected.
+recursive-include tests *.py

@@ -1,0 +1,52 @@
+name: Bug report
+description: adjlint crashed, hung, or reported something impossible
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A crash, a hang or an obviously wrong finding is a bug. If you think a
+        rule *should* have fired and did not, or fired and should not have, use
+        the rule-feedback template instead — those are judgement calls and are
+        handled differently.
+  - type: textarea
+    attributes:
+      label: What happened
+      description: The command you ran and what came out.
+      placeholder: |
+        adjlint audit -p prices.csv -a actions.csv --profile tse
+        Traceback ... / hung / reported AL001 on a bar where the band was respected
+    validations:
+      required: true
+  - type: textarea
+    attributes:
+      label: The input, or the smallest slice of it that reproduces
+      description: |
+        Paste a handful of rows rather than a whole dataset — this project's whole
+        model is that you should not have to share your data to report a bug.
+        Redact symbols freely; shape matters, identity does not.
+      render: csv
+  - type: input
+    attributes:
+      label: adjlint version
+      description: "adjlint --version"
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    attributes:
+      label: Python version and OS
+      placeholder: "CPython 3.12 / Windows 11"
+    validations:
+      required: true
+  - type: dropdown
+    attributes:
+      label: Which kind of failure
+      options:
+        - Crash / traceback
+        - Hang or unbounded memory
+        - Wrong finding on correct data
+        - Missed finding on bad data
+        - Packaging or install
+    validations:
+      required: true
