@@ -18,7 +18,8 @@ starts or stops firing silently is a breaking change for a CI gate.
 - `adjlint audit --profile-file market.json` loads a market profile from JSON
   (the `adjlint profiles` shape) and validates it; a bad field, rung or file is
   a named usage error instead of a traceback. `validate()` now also rejects
-  `weekend_days` outside 0-6 and names the failing `band_ladder` rung.
+  `weekend_days` outside 0-6 and an unknown `timezone` (when the machine has a
+  zone database to check against), and names the failing `band_ladder` rung.
 
 ## 0.1.0
 

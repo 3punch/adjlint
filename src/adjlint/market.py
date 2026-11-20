@@ -12,6 +12,9 @@ import json
 from dataclasses import dataclass, fields
 from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
+from zoneinfo import available_timezones
+
+from .io import DataError, resolve_zone
 
 __all__ = [
     "GENERIC",
@@ -62,6 +65,11 @@ class MarketProfile:
                 raise ProfileError(
                     f"{self.name}: weekend_days entry {day} must be 0-6 (monday=0 .. sunday=6)"
                 )
+        if not _zone_known(self.timezone):
+            raise ProfileError(
+                f"{self.name}: timezone {self.timezone!r} is not an IANA zone name "
+                "(e.g. 'Asia/Kolkata'), 'UTC', or a fixed offset like '+05:30'"
+            )
         prev_bound: Decimal | None = None
         last = len(self.band_ladder) - 1
         for position, (bound, band) in enumerate(self.band_ladder):
@@ -100,7 +108,7 @@ class MarketProfile:
         rung's bound, never zero.
         """
         if not isinstance(data, dict):
-            raise ProfileError(f"a profile must be a JSON object, got {_shown(data)}")
+            raise ProfileError(f"a profile must be a JSON object, got {json.dumps(data)}")
         unknown = sorted(set(data) - {f.name for f in fields(cls)})
         if unknown:
             raise ProfileError(f"unknown field(s): {', '.join(unknown)}")
@@ -110,14 +118,14 @@ class MarketProfile:
         for key in ("name", "timezone", "currency", "description"):
             if key in data:
                 if not isinstance(data[key], str):
-                    raise ProfileError(f"{key} must be a string, got {_shown(data[key])}")
+                    raise ProfileError(f"{key} must be a string, got {json.dumps(data[key])}")
                 values[key] = data[key]
         if "weekend_days" in data:
             days = data["weekend_days"]
             # bool is an int subclass, so check the exact type.
             if not isinstance(days, list) or any(type(d) is not int for d in days):
                 raise ProfileError(
-                    f"weekend_days must be a list of integers 0-6 (monday=0), got {_shown(days)}"
+                    f"weekend_days must be a list of integers 0-6 (monday=0), got {json.dumps(days)}"
                 )
             values["weekend_days"] = tuple(days)
         if "default_band" in data:
@@ -127,14 +135,14 @@ class MarketProfile:
         if "band_ladder" in data:
             ladder = data["band_ladder"]
             if not isinstance(ladder, list):
-                raise ProfileError(f"band_ladder must be a list of rungs, got {_shown(ladder)}")
+                raise ProfileError(f"band_ladder must be a list of rungs, got {json.dumps(ladder)}")
             rungs = []
             for position, rung in enumerate(ladder):
                 where = f"band_ladder[{position}]"
                 if not isinstance(rung, list) or len(rung) != 2:
                     raise ProfileError(
                         f'{where} must be a [bound, band] pair such as ["250", "0.05"], '
-                        f"got {_shown(rung)}"
+                        f"got {json.dumps(rung)}"
                     )
                 rungs.append(
                     (
@@ -146,8 +154,16 @@ class MarketProfile:
         return cls(**values)
 
 
-def _shown(value) -> str:
-    return json.dumps(value)
+def _zone_known(name: str) -> bool:
+    try:
+        resolve_zone(name)
+    except DataError:
+        # resolve_zone also fails on a machine with no zone database (Windows
+        # without tzdata); only blame the name when there is a database to ask.
+        return not available_timezones()
+    except ValueError:  # a malformed offset such as '+ab:cd'
+        return False
+    return True
 
 
 def _decimal(where: str, value, optional: bool = False) -> Decimal | None:
@@ -155,7 +171,7 @@ def _decimal(where: str, value, optional: bool = False) -> Decimal | None:
         return None
     if not isinstance(value, str):
         raise ProfileError(
-            f'{where} must be a decimal written as a string, such as "0.05", got {_shown(value)}'
+            f'{where} must be a decimal written as a string, such as "0.05", got {json.dumps(value)}'
         )
     try:
         number = Decimal(value)

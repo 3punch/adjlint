@@ -78,6 +78,23 @@ def test_validate_rejects_a_weekday_outside_0_to_6():
         MarketProfile(name="x", weekend_days=(9,)).validate()
 
 
+@pytest.mark.parametrize("zone", ["Asia/Kolkata", "UTC", "+05:30"])
+def test_validate_accepts_every_zone_form_resolve_zone_accepts(zone):
+    assert MarketProfile(name="x", timezone=zone).validate() is None
+
+
+@pytest.mark.parametrize("zone", ["Asia/Bogus", "+ab:cd"])
+def test_validate_rejects_an_unknown_timezone(zone):
+    with pytest.raises(ProfileError, match="is not an IANA zone name"):
+        MarketProfile(name="x", timezone=zone).validate()
+
+
+def test_without_a_zone_database_the_name_is_not_blamed(monkeypatch):
+    # Windows without tzdata cannot tell a bogus zone from a real one.
+    monkeypatch.setattr("adjlint.market.available_timezones", set)
+    assert MarketProfile(name="x", timezone="Asia/Bogus").validate() is None
+
+
 def test_an_unreadable_file_is_a_profile_error_naming_the_path(tmp_path):
     missing = str(tmp_path / "nope.json")
     with pytest.raises(ProfileError, match="cannot read profile file") as caught:
