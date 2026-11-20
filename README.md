@@ -181,6 +181,20 @@ Two profiles ship with the tool:
 > `validate()` will reject a malformed ladder so a typo fails at startup instead
 > of producing false findings.
 
+For any other market, describe it in a JSON file and pass `--profile-file`
+(it takes precedence over `--profile`). The shape is what `adjlint profiles`
+prints; only `name` is required, and omitted keys keep their defaults:
+
+```json
+{"name": "bse", "timezone": "Asia/Kolkata", "weekend_days": [6],
+ "band_ladder": [["250", "0.05"], [null, "0.02"]], "price_tick": "0.05"}
+```
+
+Write decimals as strings (`"0.05"`, not `0.05`): a JSON number is a float, and a
+float is rejected rather than rounded into a band limit. `null` means "absent"
+for `price_tick` and for the last rung's bound. A bad field or rung exits with
+code `2` and names it.
+
 Supply the exact session calendar when you have one; `AL006` only reports
 sessions with no bar when the calendar is explicit, because a weekday rule can
 never know about ad-hoc market closures.
