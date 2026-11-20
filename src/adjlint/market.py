@@ -8,9 +8,13 @@ production gate.  Everything here is overridable from the CLI or a config dict.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, fields
 from datetime import date, timedelta
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
+from zoneinfo import available_timezones
+
+from .io import DataError, resolve_zone
 
 __all__ = [
     "GENERIC",
@@ -20,6 +24,7 @@ __all__ = [
     "ProfileError",
     "TradingCalendar",
     "get_profile",
+    "load_profile",
 ]
 
 #: ``(inclusive upper bound of the previous close, band limit)``.
@@ -55,17 +60,28 @@ class MarketProfile:
     def validate(self) -> None:
         if self.default_band <= 0 or self.default_band >= 1:
             raise ProfileError(f"{self.name}: default_band must be in (0, 1)")
+        for day in self.weekend_days:
+            if not 0 <= day <= 6:
+                raise ProfileError(
+                    f"{self.name}: weekend_days entry {day} must be 0-6 (monday=0 .. sunday=6)"
+                )
+        if not _zone_known(self.timezone):
+            raise ProfileError(
+                f"{self.name}: timezone {self.timezone!r} is not an IANA zone name "
+                "(e.g. 'Asia/Kolkata'), 'UTC', or a fixed offset like '+05:30'"
+            )
         prev_bound: Decimal | None = None
         last = len(self.band_ladder) - 1
         for position, (bound, band) in enumerate(self.band_ladder):
+            rung = f"{self.name}: band_ladder[{position}]"
             if band <= 0 or band >= 1:
-                raise ProfileError(f"{self.name}: band limit {band} out of range (0, 1)")
+                raise ProfileError(f"{rung}: band limit {band} out of range (0, 1)")
             if bound is None:
                 if position != last:
-                    raise ProfileError(f"{self.name}: an open-ended bound must be the last rung")
+                    raise ProfileError(f"{rung}: an open-ended bound must be the last rung")
                 continue
             if prev_bound is not None and bound <= prev_bound:
-                raise ProfileError(f"{self.name}: band_ladder bounds must ascend")
+                raise ProfileError(f"{rung}: bounds must ascend ({bound} <= {prev_bound})")
             prev_bound = bound
 
     def to_dict(self) -> dict:
@@ -81,6 +97,89 @@ class MarketProfile:
             "currency": self.currency,
             "description": self.description,
         }
+
+    @classmethod
+    def from_dict(cls, data) -> MarketProfile:
+        """Inverse of :meth:`to_dict`.  Only ``name`` is required.
+
+        Decimals must be JSON *strings*: a JSON number arrives as a float, and
+        ``Decimal(0.05)`` is not ``0.05``, so numbers are rejected rather than
+        silently rounded.  ``null`` means "absent" for ``price_tick`` and for a
+        rung's bound, never zero.
+        """
+        if not isinstance(data, dict):
+            raise ProfileError(f"a profile must be a JSON object, got {json.dumps(data)}")
+        unknown = sorted(set(data) - {f.name for f in fields(cls)})
+        if unknown:
+            raise ProfileError(f"unknown field(s): {', '.join(unknown)}")
+        if "name" not in data:
+            raise ProfileError("missing required field 'name'")
+        values: dict = {}
+        for key in ("name", "timezone", "currency", "description"):
+            if key in data:
+                if not isinstance(data[key], str):
+                    raise ProfileError(f"{key} must be a string, got {json.dumps(data[key])}")
+                values[key] = data[key]
+        if "weekend_days" in data:
+            days = data["weekend_days"]
+            # bool is an int subclass, so check the exact type.
+            if not isinstance(days, list) or any(type(d) is not int for d in days):
+                raise ProfileError(
+                    f"weekend_days must be a list of integers 0-6 (monday=0), got {json.dumps(days)}"
+                )
+            values["weekend_days"] = tuple(days)
+        if "default_band" in data:
+            values["default_band"] = _decimal("default_band", data["default_band"])
+        if "price_tick" in data:
+            values["price_tick"] = _decimal("price_tick", data["price_tick"], optional=True)
+        if "band_ladder" in data:
+            ladder = data["band_ladder"]
+            if not isinstance(ladder, list):
+                raise ProfileError(f"band_ladder must be a list of rungs, got {json.dumps(ladder)}")
+            rungs = []
+            for position, rung in enumerate(ladder):
+                where = f"band_ladder[{position}]"
+                if not isinstance(rung, list) or len(rung) != 2:
+                    raise ProfileError(
+                        f'{where} must be a [bound, band] pair such as ["250", "0.05"], '
+                        f"got {json.dumps(rung)}"
+                    )
+                rungs.append(
+                    (
+                        _decimal(f"{where} bound", rung[0], optional=True),
+                        _decimal(f"{where} band", rung[1]),
+                    )
+                )
+            values["band_ladder"] = tuple(rungs)
+        return cls(**values)
+
+
+def _zone_known(name: str) -> bool:
+    try:
+        resolve_zone(name)
+    except DataError:
+        # resolve_zone also fails on a machine with no zone database (Windows
+        # without tzdata); only blame the name when there is a database to ask.
+        return not available_timezones()
+    except ValueError:  # a malformed offset such as '+ab:cd'
+        return False
+    return True
+
+
+def _decimal(where: str, value, optional: bool = False) -> Decimal | None:
+    if value is None and optional:
+        return None
+    if not isinstance(value, str):
+        raise ProfileError(
+            f'{where} must be a decimal written as a string, such as "0.05", got {json.dumps(value)}'
+        )
+    try:
+        number = Decimal(value)
+    except InvalidOperation:
+        raise ProfileError(f"{where}: {value!r} is not a decimal number") from None
+    if not number.is_finite():
+        raise ProfileError(f"{where}: {value!r} is not a finite number")
+    return number
 
 
 #: A market with no published ladder: one flat +/-20% band.  Sensible default
@@ -115,6 +214,23 @@ def get_profile(name: str) -> MarketProfile:
         raise ProfileError(
             f"unknown market profile {name!r}; available: {', '.join(sorted(PROFILES))}"
         ) from None
+
+
+def load_profile(path: str) -> MarketProfile:
+    """Read and validate a JSON profile; every failure is a ``ProfileError`` naming ``path``.
+
+    The result is deliberately not added to ``PROFILES``: the bundled catalog
+    must not depend on one run's arguments.
+    """
+    try:
+        with open(path, encoding="utf-8") as handle:
+            profile = MarketProfile.from_dict(json.load(handle))
+        profile.validate()
+    except OSError as exc:
+        raise ProfileError(f"{path}: cannot read profile file: {exc.strerror or exc}") from None
+    except ValueError as exc:  # ProfileError, JSONDecodeError and UnicodeDecodeError
+        raise ProfileError(f"{path}: {exc}") from None
+    return profile
 
 
 class TradingCalendar:

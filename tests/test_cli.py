@@ -61,6 +61,38 @@ def test_an_unknown_profile_is_a_usage_error(capsys):
     assert "unknown market profile" in capsys.readouterr().err
 
 
+def _profile_file(tmp_path, profile) -> str:
+    path = tmp_path / "market.json"
+    path.write_text(profile if isinstance(profile, str) else json.dumps(profile), encoding="utf-8")
+    return str(path)
+
+
+def test_a_profile_file_is_used_and_wins_over_profile(capsys, tmp_path):
+    path = _profile_file(tmp_path, {"name": "bse", "weekend_days": [6], "band_ladder": [[None, "0.05"]]})
+    main([*BASE, "--profile-file", path])
+    assert "profile=bse" in capsys.readouterr().out
+
+
+def test_a_bad_rung_in_a_profile_file_is_a_usage_error(capsys, tmp_path):
+    path = _profile_file(tmp_path, {"name": "bse", "band_ladder": [["250", "0.05"], ["100", "0.02"]]})
+    assert main([*BASE, "--profile-file", path]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("adjlint: ") and "band_ladder[1]: bounds must ascend" in err
+
+
+def test_a_float_in_a_profile_file_is_a_usage_error(capsys, tmp_path):
+    path = _profile_file(tmp_path, {"name": "bse", "default_band": 0.05})
+    assert main([*BASE, "--profile-file", path]) == 2
+    assert "default_band must be a decimal written as a string" in capsys.readouterr().err
+
+
+def test_a_missing_or_malformed_profile_file_is_a_usage_error(capsys, tmp_path):
+    assert main([*BASE, "--profile-file", str(tmp_path / "typo.json")]) == 2
+    assert "typo.json: cannot read profile file" in capsys.readouterr().err
+    assert main([*BASE, "--profile-file", _profile_file(tmp_path, "{not json")]) == 2
+    assert "adjlint: " in capsys.readouterr().err
+
+
 def test_a_missing_file_is_a_usage_error(capsys):
     assert main(["audit", "--prices", "definitely-not-here.csv"]) == 2
     assert "adjlint:" in capsys.readouterr().err

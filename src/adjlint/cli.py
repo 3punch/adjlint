@@ -7,7 +7,7 @@ import sys
 from decimal import Decimal, InvalidOperation
 
 from .io import DataError, load_actions, load_adjusted, load_calendar, load_prices
-from .market import MarketProfile, ProfileError, TradingCalendar, get_profile
+from .market import MarketProfile, ProfileError, TradingCalendar, get_profile, load_profile
 from .model import Severity
 from .report import FORMATS, render
 from .rules import RULES, AuditConfig, SymbolSeries, audit_many
@@ -60,6 +60,13 @@ def _parser() -> argparse.ArgumentParser:
         "--profile",
         default="generic",
         help="market profile: {}".format(", ".join(sorted(_profile_names()))),
+    )
+    run.add_argument(
+        "--profile-file",
+        dest="profile_file",
+        metavar="PATH",
+        help="JSON market profile, same shape as `adjlint profiles` prints; "
+        "takes precedence over --profile",
     )
     run.add_argument("--timezone", help="IANA zone for timestamp columns (default: the profile zone)")
     run.add_argument(
@@ -154,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         return EXIT_USAGE
 
     try:
-        profile = get_profile(args.profile)
+        profile = load_profile(args.profile_file) if args.profile_file else get_profile(args.profile)
         calendar = (
             TradingCalendar.from_dates(
                 load_calendar(args.calendar, delimiter=args.delimiter), name=args.calendar
