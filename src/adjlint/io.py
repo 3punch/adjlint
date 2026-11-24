@@ -85,14 +85,25 @@ def resolve_zone(name: str):
     ``tzdata`` wheel.  A data-quality tool must not die inside its own date
     handling, so the two forms that need no database are handled directly and a
     missing database becomes an actionable error instead of a stack trace.
+
+    Every rejection is a ``DataError``.  Building the offset can also raise
+    ``ValueError`` or ``OverflowError`` -- ``"+24000000000:00"`` overflows
+    ``timedelta`` outright -- and a caller passing a nonsense zone on the command
+    line deserves a usage error, not a traceback from ``datetime``.
     """
     key = name.strip()
     if key.upper() in ("UTC", "GMT", "Z"):
         return _timezone.utc
     if len(key) >= 5 and key[0] in "+-" and ":" in key:
-        sign = 1 if key[0] == "+" else -1
-        hours, minutes = (int(part) for part in key[1:].split(":")[:2])
-        return _timezone(sign * timedelta(hours=hours, minutes=minutes))
+        try:
+            sign = 1 if key[0] == "+" else -1
+            hours, minutes = (int(part) for part in key[1:].split(":")[:2])
+            return _timezone(sign * timedelta(hours=hours, minutes=minutes))
+        except (ValueError, OverflowError):
+            raise DataError(
+                f"timezone {name!r} is not a valid fixed offset; use a real offset "
+                "such as '+03:30', which must stay within -24 to +24 hours"
+            ) from None
     try:
         return ZoneInfo(key)
     except (KeyError, ValueError):

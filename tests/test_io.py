@@ -1,6 +1,6 @@
 """CSV parsing: the regional-export quirks, and the errors that must stay loud."""
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from io import StringIO
 
@@ -66,6 +66,20 @@ def test_named_iana_zones_resolve_when_the_database_exists():
 def test_a_zone_that_cannot_be_loaded_reports_an_actionable_error():
     with pytest.raises(DataError, match="tzdata"):
         parse_date("2026-03-02T23:30:00+00:00", timezone="Mars/Olympus_Mons")
+
+
+@pytest.mark.parametrize("zone", ["+24000000000:00", "-130000000000:00", "+ab:cd"])
+def test_an_impossible_fixed_offset_is_a_data_error_not_a_traceback(zone):
+    # Building timedelta(hours=24000000000) raises OverflowError inside datetime,
+    # which escaped main() because main only guards ValueError-derived errors.
+    # --timezone reaches this the same way a profile file does.
+    with pytest.raises(DataError, match="not a valid fixed offset"):
+        resolve_zone(zone)
+
+
+def test_a_usable_fixed_offset_still_resolves():
+    assert resolve_zone("+05:30").utcoffset(None) == timedelta(hours=5, minutes=30)
+    assert resolve_zone("-03:30").utcoffset(None) == timedelta(hours=-3, minutes=-30)
 
 
 def test_an_unparsable_date_is_an_error_not_a_silent_row_drop():
