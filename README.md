@@ -182,8 +182,10 @@ Two profiles ship with the tool:
 > of producing false findings.
 
 For any other market, describe it in a JSON file and pass `--profile-file`
-(it takes precedence over `--profile`). The shape is what `adjlint profiles`
-prints; only `name` is required, and omitted keys keep their defaults:
+(it takes precedence over `--profile`). The file holds **one** profile object —
+one entry of what `adjlint profiles` prints, not the whole catalog; saving the
+command output directly is the most common mistake and is rejected by name.
+Only `name` is required, and omitted keys keep their defaults:
 
 ```json
 {"name": "bse", "timezone": "Asia/Kolkata", "weekend_days": [6],

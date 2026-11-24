@@ -65,8 +65,8 @@ def _parser() -> argparse.ArgumentParser:
         "--profile-file",
         dest="profile_file",
         metavar="PATH",
-        help="JSON market profile, same shape as `adjlint profiles` prints; "
-        "takes precedence over --profile",
+        help="JSON market profile: ONE profile object (the shape `adjlint profiles` "
+        "prints under a name, not the whole catalog); takes precedence over --profile",
     )
     run.add_argument("--timezone", help="IANA zone for timestamp columns (default: the profile zone)")
     run.add_argument(

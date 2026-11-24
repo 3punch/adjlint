@@ -84,9 +84,34 @@ def test_validate_accepts_every_zone_form_resolve_zone_accepts(zone):
 
 
 @pytest.mark.parametrize("zone", ["Asia/Bogus", "+ab:cd"])
-def test_validate_rejects_an_unknown_timezone(zone):
+def test_validate_rejects_an_unknown_timezone(zone, monkeypatch):
+    # Blaming an IANA name requires a database to blame it against.  Pin one so
+    # this asserts the same thing on a machine with no tzdata installed, where
+    # the code deliberately declines to guess (see the test below).
+    monkeypatch.setattr("adjlint.market.available_timezones", lambda: {"UTC"})
     with pytest.raises(ProfileError, match="is not an IANA zone name"):
         MarketProfile(name="x", timezone=zone).validate()
+
+
+@pytest.mark.parametrize("zone", ["+24000000000:00", "-130000000000:00"])
+def test_an_out_of_range_offset_is_a_profile_error_not_an_overflow(zone, monkeypatch):
+    # datetime raises OverflowError building these.  An offset needs no zone
+    # database, so the value is wrong on every machine and must be blamed even
+    # where there is no tzdata to consult.
+    monkeypatch.setattr("adjlint.market.available_timezones", set)
+    with pytest.raises(ProfileError, match="is not an IANA zone name"):
+        MarketProfile(name="x", timezone=zone).validate()
+    assert MarketProfile(name="x", timezone="+05:30").validate() is None
+
+
+def test_the_whole_profiles_catalog_is_rejected_by_name():
+    # `adjlint profiles > market.json` is the obvious first thing to try, and it
+    # prints a catalog rather than one profile.  Name that mistake instead of
+    # reporting every market in the catalog as an unknown field.
+    catalog = {name: profile.to_dict() for name, profile in PROFILES.items()}
+    with pytest.raises(ProfileError, match="catalog printed by `adjlint profiles`") as caught:
+        MarketProfile.from_dict(catalog)
+    assert "generic" in str(caught.value)
 
 
 def test_without_a_zone_database_the_name_is_not_blamed(monkeypatch):

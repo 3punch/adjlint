@@ -5,6 +5,7 @@ from pathlib import Path
 
 from adjlint import RULES
 from adjlint.cli import main
+from adjlint.market import PROFILES
 
 ROOT = Path(__file__).resolve().parent.parent
 PRICES = str(ROOT / "examples" / "prices.csv")
@@ -84,6 +85,23 @@ def test_a_float_in_a_profile_file_is_a_usage_error(capsys, tmp_path):
     path = _profile_file(tmp_path, {"name": "bse", "default_band": 0.05})
     assert main([*BASE, "--profile-file", path]) == 2
     assert "default_band must be a decimal written as a string" in capsys.readouterr().err
+
+
+def test_an_overflowing_timezone_in_a_profile_file_is_a_usage_error(capsys, tmp_path):
+    # datetime raises OverflowError on this, and OverflowError is not a ValueError,
+    # so it walked straight past the handler in main() as a stack trace.
+    path = _profile_file(tmp_path, {"name": "bse", "timezone": "+24000000000:00"})
+    assert main([*BASE, "--profile-file", path]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("adjlint: ") and "bse: timezone" in err and path in err
+
+
+def test_the_profiles_catalog_is_not_accepted_as_one_profile(capsys, tmp_path):
+    # The help text points at `adjlint profiles`, whose output is every profile.
+    catalog = {name: profile.to_dict() for name, profile in PROFILES.items()}
+    path = _profile_file(tmp_path, catalog)
+    assert main([*BASE, "--profile-file", path]) == 2
+    assert "catalog printed by `adjlint profiles`" in capsys.readouterr().err
 
 
 def test_a_missing_or_malformed_profile_file_is_a_usage_error(capsys, tmp_path):

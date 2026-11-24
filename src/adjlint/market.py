@@ -14,7 +14,7 @@ from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 from zoneinfo import available_timezones
 
-from .io import DataError, resolve_zone
+from .io import resolve_zone
 
 __all__ = [
     "GENERIC",
@@ -109,6 +109,14 @@ class MarketProfile:
         """
         if not isinstance(data, dict):
             raise ProfileError(f"a profile must be a JSON object, got {json.dumps(data)}")
+        if "name" not in data and data and all(isinstance(v, dict) for v in data.values()):
+            # `adjlint profiles > market.json` is the obvious thing to try and it
+            # prints a catalog of profiles, so name the mistake rather than
+            # reporting 'generic' and 'tse' as unknown fields.
+            raise ProfileError(
+                "this looks like the catalog printed by `adjlint profiles`; save a single "
+                f"profile object instead, such as the {min(data)!r} entry"
+            )
         unknown = sorted(set(data) - {f.name for f in fields(cls)})
         if unknown:
             raise ProfileError(f"unknown field(s): {', '.join(unknown)}")
@@ -157,11 +165,11 @@ class MarketProfile:
 def _zone_known(name: str) -> bool:
     try:
         resolve_zone(name)
-    except DataError:
-        # resolve_zone also fails on a machine with no zone database (Windows
-        # without tzdata); only blame the name when there is a database to ask.
-        return not available_timezones()
-    except ValueError:  # a malformed offset such as '+ab:cd'
+    except ValueError:  # DataError: a bad offset, or a zone this machine cannot load
+        if name.strip().startswith(("+", "-")):
+            return False  # an offset needs no database, so the name is simply wrong
+        return not available_timezones()  # no database to ask: do not blame the name
+    except OverflowError:  # defensive: datetime raising before resolve_zone converts it
         return False
     return True
 
